@@ -1,0 +1,19 @@
+Vérification du gradient
+========================
+
+Exemple CNN.md
+z = 0.720000
+a = 0.672607
+E = 0.107186
+dE/dw1 analytique = -0.115351
+dE/dw1 numérique  = -0.115351
+écart absolu      = 2.719e-11
+
+Réseau complet (57 -> 32 -> 10, 8 exemples)
+coût = 0.22874071
+paramètres vérifiés = 2186
+écart absolu maximal = 5.187e-12
+écart relatif maximal = 6.112e-07
+écart relatif moyen = 3.430e-09
+
+Conclusion : gradient rétropropagé cohérent avec les différences finies.
