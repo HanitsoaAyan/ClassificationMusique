@@ -1,0 +1,319 @@
+% Partie C du rapport : optimisation et convergence.
+% Pour fusionner avec le rapport commun, ne garder que ce qui se trouve
+% entre \begin{document} et \end{document} (ou utiliser \input).
+% Les figures sont lues dans resultats/experiences/.
+
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[margin=2.5cm]{geometry}
+
+\graphicspath{{../resultats/experiences/}}
+
+\begin{document}
+
+\section{Optimisation et convergence}
+
+\subsection{Objectif de l'optimisation et fonction de coût}
+
+Notre réseau a la forme $57 \to 32 \to 10$. Ses paramètres sont les
+matrices de poids $W_1$ et $W_2$ et les biais $b_1$ et $b_2$, soit en tout
+$57 \times 32 + 32 + 32 \times 10 + 10 = 2186$ paramètres, que l'on
+regroupe dans un vecteur $\theta$.
+
+Pour un lot de $N$ morceaux et $K = 10$ genres, le coût est l'erreur
+quadratique moyenne
+\[
+E(\theta) = \frac{1}{NK} \sum_{n=1}^{N} \sum_{k=1}^{K}
+\bigl(a_{n,k} - y_{n,k}\bigr)^2 ,
+\]
+où $a_{n,k}$ est la sortie sigmoïde du réseau et $y_{n,k}$ la valeur
+attendue (encodage one-hot). Apprendre revient donc à résoudre
+$\min_{\theta} E(\theta)$. Le gradient $\nabla E(\theta)$ est calculé par
+la rétropropagation, qui est la partie du membre B. Notre travail ici
+consiste à utiliser ce gradient pour modifier les paramètres.
+
+\subsection{Descente de gradient}
+
+Pour un déplacement $d$ petit, un développement à l'ordre un donne
+\[
+E(\theta + d) \approx E(\theta) + \nabla E(\theta)^{T} d .
+\]
+Si on choisit $d = -\eta \, \nabla E(\theta)$ avec $\eta > 0$, on obtient
+\[
+E(\theta + d) \approx E(\theta) - \eta \, \|\nabla E(\theta)\|^2 ,
+\]
+donc le coût diminue tant que $\eta$ est assez petit et que le gradient
+n'est pas nul. D'où la règle de mise à jour
+\[
+\theta_{t+1} = \theta_t - \eta \, \nabla E(\theta_t) .
+\]
+Cette approximation n'est valable que pour un pas petit. Si $\eta$ est trop
+grand, le terme négligé peut dominer et le coût peut augmenter, ce qui
+explique l'importance du taux d'apprentissage.
+
+Dans notre code, le gradient est calculé sur des mini-lots de 64 morceaux
+tirés au hasard à chaque époque. Le jeu d'apprentissage compte 787
+morceaux, ce qui fait 13 mises à jour par époque. Le gradient d'un
+mini-lot est une estimation bruitée du gradient complet. Une époque est
+un passage sur tout le jeu d'apprentissage.
+
+\subsection{Choix des taux d'apprentissage et protocole expérimental}
+
+Pour que les comparaisons soient justes, toutes les expériences respectent
+les mêmes conditions :
+\begin{itemize}
+  \item mêmes données (celles préparées par le membre A) ;
+  \item 800 époques et mini-lots de 64 morceaux ;
+  \item même graine aléatoire (42), donc mêmes poids de départ et même
+        ordre de tirage des mini-lots ;
+  \item un seul paramètre change d'une expérience à l'autre ;
+  \item le coût est mesuré à la fin de chaque époque sur tout le jeu
+        d'apprentissage.
+\end{itemize}
+
+Avant les expériences, nous avons vérifié que notre boucle reproduit celle
+du membre B : avec $\eta = 0{,}5$, sans momentum, nous retrouvons son coût
+final (0,0308) et ses précisions (84,75~\% en apprentissage et 72,22~\% en
+test).
+
+Les expériences réalisées sont les suivantes.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Expérience & Paramètre qui varie & Valeurs \\
+\midrule
+1. Taux d'apprentissage & $\eta$ & 0,001 ; 0,01 ; 0,1 ; 0,5 ; 1,0 \\
+2. Momentum & $\beta$ (avec $\eta = 0{,}1$) & 0 ; 0,5 ; 0,9 \\
+3. Taille du réseau & couche cachée ($\eta = 0{,}5$) & 8 ; 16 ; 32 ; 64 ; 128 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le temps de calcul est mesuré pour chaque essai. La précision sur le jeu
+de test est donnée à titre indicatif : l'évaluation officielle
+(précision et matrice de confusion) est la partie du membre A. Le jeu de
+test contient 198 morceaux, donc un morceau correspond à environ
+0,5 point de précision.
+
+\subsection{Le momentum}
+
+Le momentum garde en mémoire une partie de la mise à jour précédente.
+Avec une vitesse $v$ initialisée à zéro, on utilise
+\[
+v_t = \beta \, v_{t-1} + \nabla E(\theta_t), \qquad
+\theta_{t+1} = \theta_t - \eta \, v_t .
+\]
+Avec $\beta = 0$, on retrouve exactement la descente de gradient simple.
+
+Si le gradient reste à peu près constant, la vitesse tend vers
+$v = g/(1-\beta)$, donc le pas effectif devient $\eta/(1-\beta)$. Pour
+$\beta = 0{,}9$, le pas est environ dix fois plus grand dans une direction
+stable. Il faut en tenir compte quand on compare avec la descente simple.
+
+Le code du membre B écrit le momentum sous la forme
+$v' \leftarrow \mu v' - \eta g$ puis $w \leftarrow w + v'$. C'est la même
+méthode : il suffit de poser $v' = -\eta v$ et $\mu = \beta$.
+
+\subsection{Résultats et analyse de convergence}
+
+\subsubsection{Influence du taux d'apprentissage}
+
+La figure~\ref{fig:exp1} montre le coût en fonction de l'époque pour les
+cinq valeurs de $\eta$, et le tableau~\ref{tab:exp1} donne les valeurs
+après 800 époques.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{exp1_taux_apprentissage.png}
+\caption{Coût en fonction de l'époque pour plusieurs valeurs de $\eta$
+(descente simple).}
+\label{fig:exp1}
+\end{figure}
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{ccccc}
+\toprule
+$\eta$ & Coût final & Préc. train (\%) & Préc. test (\%) & Temps (s) \\
+\midrule
+0,001 & 0,1118 & 13,98 & 14,65 & 4,0 \\
+0,01  & 0,0834 & 33,80 & 33,84 & 3,7 \\
+0,1   & 0,0599 & 58,58 & 57,58 & 3,7 \\
+0,5   & 0,0308 & 84,75 & 72,22 & 4,0 \\
+1,0   & 0,0199 & 91,87 & 72,73 & 3,8 \\
+\bottomrule
+\end{tabular}
+\caption{Résultats de l'expérience 1 après 800 époques.}
+\label{tab:exp1}
+\end{table}
+
+Plus $\eta$ est grand, plus le coût baisse vite : le coût final passe de
+0,1118 pour $\eta = 0{,}001$ à 0,0199 pour $\eta = 1{,}0$. Avec
+$\eta = 0{,}001$, le réseau apprend très lentement : après 800 époques sa
+précision d'apprentissage est de 14~\%, alors qu'un choix au hasard donnerait
+environ 10~\% avec dix genres. Les courbes sont régulières. Nous n'avons
+observé ni oscillation ni divergence, même pour $\eta = 1{,}0$ : dans
+l'intervalle testé, nous n'avons donc pas atteint de taux d'apprentissage
+trop grand.
+
+Un coût plus bas n'apporte pas autant en test. En passant de
+$\eta = 0{,}5$ à $\eta = 1{,}0$, le coût baisse de 0,0308 à 0,0199 et la
+précision d'apprentissage monte de 84,75~\% à 91,87~\%, mais la précision de
+test passe seulement de 72,22~\% à 72,73~\%, soit un morceau de plus sur 198.
+L'écart entre apprentissage et test augmente (environ 12,5 points puis
+19,1 points), ce qui indique un début de surapprentissage.
+
+\subsubsection{Descente simple et momentum}
+
+Les résultats sont donnés par la figure~\ref{fig:exp2} et le
+tableau~\ref{tab:exp2}. Le pas $\eta$ vaut 0,1 pour les trois courbes.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{exp2_momentum.png}
+\caption{Descente simple et momentum, avec $\eta = 0{,}1$.}
+\label{fig:exp2}
+\end{figure}
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{cccccc}
+\toprule
+$\beta$ & Pas effectif & Coût final & Préc. train (\%) & Préc. test (\%)
+ & Temps (s) \\
+\midrule
+0   & 0,1 & 0,0599 & 58,58 & 57,58 & 4,0 \\
+0,5 & 0,2 & 0,0481 & 72,68 & 62,63 & 4,0 \\
+0,9 & 1,0 & 0,0200 & 92,25 & 73,23 & 4,3 \\
+\bottomrule
+\end{tabular}
+\caption{Résultats de l'expérience 2 après 800 époques ($\eta = 0{,}1$).}
+\label{tab:exp2}
+\end{table}
+
+Le momentum fait baisser le coût beaucoup plus vite : à $\eta = 0{,}1$, le
+coût final passe de 0,0599 sans momentum à 0,0481 pour $\beta = 0{,}5$ et à
+0,0200 pour $\beta = 0{,}9$. Cela correspond à la remarque sur le pas
+effectif $\eta/(1-\beta)$, qui vaut 0,2 pour $\beta = 0{,}5$ et 1,0 pour
+$\beta = 0{,}9$. La courbe $\beta = 0{,}9$ est presque la même que celle de
+la descente simple avec $\eta = 1{,}0$ (coûts finaux 0,01997 et 0,01995,
+précisions d'apprentissage 92,25~\% et 91,87~\%). Dans nos essais, le
+momentum se comporte donc surtout comme un pas plus grand. Nous n'avons pas
+mis en évidence d'autre avantage, par exemple une meilleure stabilité,
+puisque la descente simple n'oscille pas non plus pour $\eta = 1{,}0$. La
+précision de test pour $\beta = 0{,}9$ (73,23~\%) ne diffère que d'un morceau de
+celle obtenue avec $\eta = 1{,}0$ (72,73~\%).
+
+\subsubsection{Influence de la taille du réseau}
+
+Les résultats sont donnés par la figure~\ref{fig:exp3} et le
+tableau~\ref{tab:exp3}, avec $\eta = 0{,}5$ et sans momentum. Le nombre de
+paramètres vaut $68h + 10$ pour $h$ neurones cachés.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{exp3_taille_reseau.png}
+\caption{Coût en fonction de l'époque pour plusieurs tailles de couche
+cachée.}
+\label{fig:exp3}
+\end{figure}
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{cccccc}
+\toprule
+Neurones cachés & Paramètres & Coût final & Préc. train (\%)
+ & Préc. test (\%) & Temps (s) \\
+\midrule
+8   & 554  & 0,0438 & 74,08 & 63,13 & 2,0 \\
+16  & 1098 & 0,0353 & 83,35 & 70,20 & 2,9 \\
+32  & 2186 & 0,0308 & 84,75 & 72,22 & 3,9 \\
+64  & 4362 & 0,0288 & 86,79 & 71,21 & 8,8 \\
+128 & 8714 & 0,0282 & 86,66 & 72,73 & 16,1 \\
+\bottomrule
+\end{tabular}
+\caption{Résultats de l'expérience 3 après 800 époques. Les temps dépendent
+de l'ordinateur utilisé.}
+\label{tab:exp3}
+\end{table}
+
+Entre 8 et 32 neurones, le coût et la précision s'améliorent nettement
+(précision de test de 63,13~\% à 72,22~\%). Au-delà de 32 neurones, le gain sur
+le coût est faible (0,0308, 0,0288 puis 0,0282), alors que le temps de
+calcul augmente fortement (de 3,9~s à 16,1~s) et que le nombre de paramètres
+double à chaque fois. Les précisions de test pour 32, 64 et 128 neurones
+(72,22~\%, 71,21~\% et 72,73~\%) ne diffèrent que de un à trois morceaux : on ne
+peut donc pas conclure qu'un réseau plus grand est meilleur en test.
+Une taille de 32 neurones nous semble un bon compromis entre coût et temps de
+calcul.
+
+\subsubsection{Convergence}
+
+Après 800 époques, aucune des courbes n'est stabilisée : elles baissent
+encore, y compris celle de $\eta = 1{,}0$. La baisse est très lente pour
+$\eta = 0{,}01$, mais elle continue. On ne peut donc pas dire que le réseau
+a convergé, seulement que le coût diminue régulièrement. Les courbes ne
+commencent pas toutes à la même hauteur parce que le coût est mesuré à la
+fin de la première époque, après 13 mises à jour : un grand $\eta$ a déjà fait
+baisser le coût à ce moment-là.
+
+\subsection{Tableau de comparaison des méthodes}
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccc}
+\toprule
+Méthode & $\eta$ & $\beta$ & Pas eff. & Coût final & Train (\%) & Test (\%)
+ & Temps (s) \\
+\midrule
+Descente simple & 0,1 & 0   & 0,1 & 0,0599 & 58,58 & 57,58 & 3,7 \\
+Descente simple & 0,5 & 0   & 0,5 & 0,0308 & 84,75 & 72,22 & 4,0 \\
+Descente simple & 1,0 & 0   & 1,0 & 0,0199 & 91,87 & 72,73 & 3,8 \\
+Momentum        & 0,1 & 0,5 & 0,2 & 0,0481 & 72,68 & 62,63 & 4,0 \\
+Momentum        & 0,1 & 0,9 & 1,0 & 0,0200 & 92,25 & 73,23 & 4,3 \\
+\bottomrule
+\end{tabular}
+\caption{Comparaison des méthodes après 800 époques (réseau 57-32-10).}
+\label{tab:comparaison}
+\end{table}
+
+\subsection{Limites et conclusion}
+
+Nos conclusions ont plusieurs limites. Chaque essai n'est fait qu'avec une
+seule graine, donc une différence faible entre deux méthodes peut venir
+du hasard. Le jeu de test est petit (198 morceaux), ce qui rend les écarts
+de test de quelques morceaux peu significatifs. Les 800 époques ne suffisent
+pas pour voir une stabilisation du coût. Nous n'avons pas cherché la valeur
+de $\eta$ à partir de laquelle l'apprentissage devient instable. Les
+mini-lots ajoutent du bruit au gradient. Enfin, le réseau utilise des
+sigmoïdes avec une erreur quadratique, ce qui n'est pas le choix le plus
+classique pour de la classification (softmax et entropie croisée sont une
+extension possible).
+
+Nous n'avons pas testé les méthodes d'ordre deux. La méthode de Newton
+utilise la hessienne : $\theta_{t+1} = \theta_t - H^{-1}\nabla E(\theta_t)$.
+Ici $H$ serait une matrice $2186 \times 2186$, soit environ 4,8 millions
+d'entrées, et résoudre le système coûte de l'ordre de $2186^3
+\approx 10^{10}$ opérations par itération. De plus, la hessienne n'est
+pas forcément définie positive pour un réseau de neurones. C'est une
+raison de rester sur des méthodes d'ordre un.
+
+En résumé, dans nos expériences, le coût baisse d'autant plus vite que le pas
+effectif est grand, que ce soit en augmentant $\eta$ ou en ajoutant du
+momentum. Le momentum avec $\eta = 0{,}1$ et $\beta = 0{,}9$ donne presque le
+même résultat que la descente simple avec $\eta = 1{,}0$. Un coût plus bas ne
+donne pas une meilleure précision de test : au-delà de $\eta = 0{,}5$ et de
+32 neurones cachés, la précision de test ne change pas de façon nette, alors
+que l'écart avec la précision d'apprentissage grandit. Le réglage le plus
+intéressant parmi ceux testés est donc un réseau de 32 neurones avec un pas
+effectif de l'ordre de 0,5 à 1.
+
+\end{document}
